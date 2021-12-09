@@ -8,8 +8,14 @@
 #include "sdkconfig.h"
 #include "rom/uart.h"
 
+// Used for the LCD
 #include "smbus.h"
 #include "i2c-lcd1602.h"
+
+// Used for the on-board buttons
+#include "esp_peripherals.h"
+#include "periph_adc_button.h"
+#include "input_key_service.h"
 
 #define TAG "app"
 
@@ -37,7 +43,7 @@ char* current_hum = "30";
 
 static void init(void)
 {
-    // Set up I2C
+    ESP_LOGI(TAG, "[ 1 ] Set up I2C");
     int i2c_master_port = I2C_MASTER_NUM;
     i2c_config_t conf;
     conf.mode = I2C_MODE_MASTER;
@@ -54,16 +60,15 @@ static void init(void)
     i2c_port_t i2c_num = I2C_MASTER_NUM;
     uint8_t address = CONFIG_LCD1602_I2C_ADDRESS;
 
-    // Set up the SMBus
+    ESP_LOGI(TAG, "[ 2 ] Set up SMBus");
     smbus_info_t * smbus_info = smbus_malloc();
     ESP_ERROR_CHECK(smbus_init(smbus_info, i2c_num, address));
     ESP_ERROR_CHECK(smbus_set_timeout(smbus_info, 1000 / portTICK_RATE_MS));
 
-    // Set up the LCD1602 device with backlight off
+    ESP_LOGI(TAG, "[ 3 ] Set up LCD1602 device with backlight off");
     lcd_info = i2c_lcd1602_malloc();
     ESP_ERROR_CHECK(i2c_lcd1602_init(lcd_info, smbus_info, true,
                                      LCD_NUM_ROWS, LCD_NUM_COLUMNS, LCD_NUM_VISIBLE_COLUMNS));
-
     ESP_ERROR_CHECK(i2c_lcd1602_reset(lcd_info));
 }
 
@@ -104,10 +109,52 @@ void screen_humidity_task(void * pvParameter)
     vTaskDelete(NULL);
 }
 
+static esp_err_t input_key_service_cb(periph_service_handle_t handle, periph_service_event_t *evt, void *ctx)
+{
+    const int input_type = evt->type;
+
+    if(input_type == 1)
+    {
+        switch ((int)evt->data) {
+            case INPUT_KEY_USER_ID_SET:
+                ESP_LOGI(TAG, "Switched to new screen");
+                break;
+            case INPUT_KEY_USER_ID_VOLDOWN:
+                ESP_LOGI(TAG, "Preferred temperature has been reduced");
+                break;
+            case INPUT_KEY_USER_ID_VOLUP:
+                ESP_LOGI(TAG, "Preferred temperature has been increased");
+                break;
+            default:
+                break;
+        }
+    }
+    return ESP_OK;
+}
+
 void app_main()
 {
     init();
 
     // xTaskCreate(&screen_temperature_task, "screen_temp_task", 4096, NULL, 5, NULL);
-    xTaskCreate(&screen_humidity_task, "screen_hum_task", 4096, NULL, 5, NULL);
+    // xTaskCreate(&screen_humidity_task, "screen_hum_task", 4096, NULL, 5, NULL);
+
+    ESP_LOGI(TAG, "[ 1 ] Initialize peripherals");
+    esp_periph_config_t periph_cfg = DEFAULT_ESP_PERIPH_SET_CONFIG();
+    esp_periph_set_handle_t set = esp_periph_set_init(&periph_cfg);
+
+    ESP_LOGI(TAG, "[ 2 ] Initialize Button peripheral with board init");
+    audio_board_key_init(set);
+
+    ESP_LOGI(TAG, "[ 3 ] Create and start input key service");
+    input_key_service_info_t input_key_info[] = INPUT_KEY_DEFAULT_INFO();
+    input_key_service_cfg_t input_cfg = INPUT_KEY_SERVICE_DEFAULT_CONFIG();
+    input_cfg.handle = set;
+    input_cfg.based_cfg.task_stack = 4 * 1024;
+    periph_service_handle_t input_ser = input_key_service_create(&input_cfg);
+
+    input_key_service_add_key(input_ser, input_key_info, INPUT_KEY_NUM);
+    periph_service_set_callback(input_ser, input_key_service_cb, NULL);
+
+    ESP_LOGW(TAG, "[ 4 ] Waiting for a button to be pressed ...");
 }
