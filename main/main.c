@@ -31,6 +31,9 @@
 
 static i2c_lcd1602_info_t* lcd_info;
 
+char* current_temp = "24";
+char* pref_temp = "20";
+
 static void init(void)
 {
     // Set up I2C
@@ -65,16 +68,19 @@ static void init(void)
 
 void screen_temperature_task(void * pvParameter) 
 {
-
-}
-
-void lcd1602_task(void * pvParameter)
-{
-    ESP_LOGI(TAG, "Printing string to lcd");
+    ESP_LOGI(TAG, "Displaying temperature screen");
     i2c_lcd1602_clear           (lcd_info);
-    i2c_lcd1602_set_cursor      (lcd_info, true);
+
     i2c_lcd1602_move_cursor     (lcd_info, 0, 0);
-    i2c_lcd1602_write_string    (lcd_info, "Hello world!");
+    i2c_lcd1602_write_string    (lcd_info, "Current temp: ");
+    i2c_lcd1602_write_string    (lcd_info, current_temp);
+
+    i2c_lcd1602_move_cursor     (lcd_info, 0, 1);
+    i2c_lcd1602_write_string    (lcd_info, "Preferred temp: ");
+    i2c_lcd1602_write_string    (lcd_info, pref_temp);
+
+    i2c_lcd1602_move_cursor     (lcd_info, 0, 2);
+    i2c_lcd1602_write_string    (lcd_info, "Set> Humidity");
 
     vTaskDelete(NULL);
 }
@@ -83,5 +89,5 @@ void app_main()
 {
     init();
 
-    xTaskCreate(&lcd1602_task, "lcd1602_task", 4096, NULL, 5, NULL);
+    xTaskCreate(&screen_temperature_task, "screen_temp_task", 4096, NULL, 5, NULL);
 }
