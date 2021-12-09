@@ -33,6 +33,7 @@ static i2c_lcd1602_info_t* lcd_info;
 
 char* current_temp = "24";
 char* pref_temp = "20";
+char* current_hum = "30";
 
 static void init(void)
 {
@@ -88,9 +89,25 @@ void screen_temperature_task(void * pvParameter)
     vTaskDelete(NULL);
 }
 
+void screen_humidity_task(void * pvParameter) 
+{
+    ESP_LOGI(TAG, "Displaying humidity screen");
+    i2c_lcd1602_clear           (lcd_info);
+
+    i2c_lcd1602_move_cursor     (lcd_info, 0, 0);
+    i2c_lcd1602_write_string    (lcd_info, "Current    Hum:   ");
+    i2c_lcd1602_write_string    (lcd_info, current_hum);
+
+    i2c_lcd1602_move_cursor     (lcd_info, 0, 2);
+    i2c_lcd1602_write_string    (lcd_info, "Set> Temp");
+
+    vTaskDelete(NULL);
+}
+
 void app_main()
 {
     init();
 
-    xTaskCreate(&screen_temperature_task, "screen_temp_task", 4096, NULL, 5, NULL);
+    // xTaskCreate(&screen_temperature_task, "screen_temp_task", 4096, NULL, 5, NULL);
+    xTaskCreate(&screen_humidity_task, "screen_hum_task", 4096, NULL, 5, NULL);
 }
