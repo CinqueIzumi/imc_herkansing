@@ -14,9 +14,9 @@
 #define TAG "app"
 
 // LCD1602
-#define LCD_NUM_ROWS               2
-#define LCD_NUM_COLUMNS            32
-#define LCD_NUM_VISIBLE_COLUMNS    16
+#define LCD_NUM_ROWS               3
+#define LCD_NUM_COLUMNS            20
+#define LCD_NUM_VISIBLE_COLUMNS    20
 
 // Undefine USE_STDIN if no stdin is available (e.g. no USB UART) - a fixed delay will occur instead of a wait for a keypress.
 #define USE_STDIN  1
@@ -72,15 +72,18 @@ void screen_temperature_task(void * pvParameter)
     i2c_lcd1602_clear           (lcd_info);
 
     i2c_lcd1602_move_cursor     (lcd_info, 0, 0);
-    i2c_lcd1602_write_string    (lcd_info, "Current temp: ");
+    i2c_lcd1602_write_string    (lcd_info, "Current   temp:   ");
     i2c_lcd1602_write_string    (lcd_info, current_temp);
 
     i2c_lcd1602_move_cursor     (lcd_info, 0, 1);
-    i2c_lcd1602_write_string    (lcd_info, "Preferred temp: ");
+    i2c_lcd1602_write_string    (lcd_info, "Preferred temp:   ");
     i2c_lcd1602_write_string    (lcd_info, pref_temp);
 
     i2c_lcd1602_move_cursor     (lcd_info, 0, 2);
     i2c_lcd1602_write_string    (lcd_info, "Set> Humidity");
+
+    i2c_lcd1602_move_cursor     (lcd_info, 0, 3);
+    i2c_lcd1602_write_string    (lcd_info, "Vol+/-> Pref +/-");
 
     vTaskDelete(NULL);
 }
