@@ -41,6 +41,13 @@ char* current_temp = "24";
 char* pref_temp = "20";
 char* current_hum = "30";
 
+// Used to determine and control the LCD screen state
+enum screen_state {
+    SCREEN_TEMP = 0x00,
+    SCREEN_HUM = 0x01,
+};
+static int16_t screen_current_state = 0x00; 
+
 static void init(void)
 {
     ESP_LOGI(TAG, "[ 1 ] Set up I2C");
@@ -100,13 +107,31 @@ void screen_humidity_task(void * pvParameter)
     i2c_lcd1602_clear           (lcd_info);
 
     i2c_lcd1602_move_cursor     (lcd_info, 0, 0);
-    i2c_lcd1602_write_string    (lcd_info, "Current    Hum:   ");
+    i2c_lcd1602_write_string    (lcd_info, "Current Humidity: ");
     i2c_lcd1602_write_string    (lcd_info, current_hum);
 
     i2c_lcd1602_move_cursor     (lcd_info, 0, 2);
     i2c_lcd1602_write_string    (lcd_info, "Set> Temp");
 
     vTaskDelete(NULL);
+}
+
+static TaskHandle_t active_task_handle;
+void switch_screen_states(int16_t newState)
+{
+    switch(newState) 
+    {
+        case SCREEN_TEMP:
+            xTaskCreate(screen_temperature_task, "screen_temp_task", 1024*2, (void*)0, 10, &active_task_handle);
+            screen_current_state = newState;
+            break;
+        case SCREEN_HUM:
+            xTaskCreate(screen_humidity_task, "screen_hum_task", 1024*2, (void*)0, 10, &active_task_handle);
+            screen_current_state = newState;
+            break;
+    }
+
+    screen_current_state = newState;
 }
 
 static esp_err_t input_key_service_cb(periph_service_handle_t handle, periph_service_event_t *evt, void *ctx)
@@ -117,7 +142,13 @@ static esp_err_t input_key_service_cb(periph_service_handle_t handle, periph_ser
     {
         switch ((int)evt->data) {
             case INPUT_KEY_USER_ID_SET:
-                ESP_LOGI(TAG, "Switched to new screen");
+                if(screen_current_state == 0x00)
+                {
+                    switch_screen_states(0x01); 
+                } else 
+                {
+                    switch_screen_states(0x00);
+                }
                 break;
             case INPUT_KEY_USER_ID_VOLDOWN:
                 ESP_LOGI(TAG, "Preferred temperature has been reduced");
@@ -135,9 +166,6 @@ static esp_err_t input_key_service_cb(periph_service_handle_t handle, periph_ser
 void app_main()
 {
     init();
-
-    // xTaskCreate(&screen_temperature_task, "screen_temp_task", 4096, NULL, 5, NULL);
-    // xTaskCreate(&screen_humidity_task, "screen_hum_task", 4096, NULL, 5, NULL);
 
     ESP_LOGI(TAG, "[ 1 ] Initialize peripherals");
     esp_periph_config_t periph_cfg = DEFAULT_ESP_PERIPH_SET_CONFIG();
@@ -157,4 +185,7 @@ void app_main()
     periph_service_set_callback(input_ser, input_key_service_cb, NULL);
 
     ESP_LOGW(TAG, "[ 4 ] Waiting for a button to be pressed ...");
+
+    // Set the start screen to the temp screen
+    switch_screen_states(0x00);
 }
