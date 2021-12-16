@@ -37,9 +37,9 @@
 
 static i2c_lcd1602_info_t* lcd_info;
 
-char* current_temp = "24";
-char* pref_temp = "20";
-char* current_hum = "30";
+int current_temp = 24;
+int pref_temp = 20;
+int current_hum = 30;
 
 // Used to determine and control the LCD screen state
 enum screen_state {
@@ -81,16 +81,22 @@ static void init(void)
 
 void screen_temperature_task(void * pvParameter) 
 {
+    char snum_current_temp[2];
+    sprintf(snum_current_temp, "%d", current_temp);
+
+    char snum_pref_temp[2];
+    sprintf(snum_pref_temp, "%d", pref_temp);
+
     ESP_LOGI(TAG, "Displaying temperature screen");
     i2c_lcd1602_clear           (lcd_info);
 
     i2c_lcd1602_move_cursor     (lcd_info, 0, 0);
     i2c_lcd1602_write_string    (lcd_info, "Current   temp:   ");
-    i2c_lcd1602_write_string    (lcd_info, current_temp);
+    i2c_lcd1602_write_string    (lcd_info, snum_current_temp);
 
     i2c_lcd1602_move_cursor     (lcd_info, 0, 1);
     i2c_lcd1602_write_string    (lcd_info, "Preferred temp:   ");
-    i2c_lcd1602_write_string    (lcd_info, pref_temp);
+    i2c_lcd1602_write_string    (lcd_info, snum_pref_temp);
 
     i2c_lcd1602_move_cursor     (lcd_info, 0, 2);
     i2c_lcd1602_write_string    (lcd_info, "Set> Humidity");
@@ -103,12 +109,15 @@ void screen_temperature_task(void * pvParameter)
 
 void screen_humidity_task(void * pvParameter) 
 {
+    char snum_current_hum[2];
+    sprintf(snum_current_hum, "%d", current_hum);
+
     ESP_LOGI(TAG, "Displaying humidity screen");
     i2c_lcd1602_clear           (lcd_info);
 
     i2c_lcd1602_move_cursor     (lcd_info, 0, 0);
     i2c_lcd1602_write_string    (lcd_info, "Current Humidity: ");
-    i2c_lcd1602_write_string    (lcd_info, current_hum);
+    i2c_lcd1602_write_string    (lcd_info, snum_current_hum);
 
     i2c_lcd1602_move_cursor     (lcd_info, 0, 2);
     i2c_lcd1602_write_string    (lcd_info, "Set> Temp");
@@ -151,10 +160,26 @@ static esp_err_t input_key_service_cb(periph_service_handle_t handle, periph_ser
                 }
                 break;
             case INPUT_KEY_USER_ID_VOLDOWN:
-                ESP_LOGI(TAG, "Preferred temperature has been reduced");
+                if(screen_current_state == 0x00)
+                {
+                    if(pref_temp > 0)
+                    {
+                        pref_temp--;
+                        ESP_LOGI(TAG, "Preferred temperature has been reduced");
+                        switch_screen_states(0x00);
+                    }
+                }
                 break;
             case INPUT_KEY_USER_ID_VOLUP:
-                ESP_LOGI(TAG, "Preferred temperature has been increased");
+                if(screen_current_state == 0x00)
+                {
+                    if(pref_temp < 30)
+                    {
+                        pref_temp++;
+                        ESP_LOGI(TAG, "Preferred temperature has been increased");
+                        switch_screen_states(0x00);
+                    }
+                }
                 break;
             default:
                 break;
