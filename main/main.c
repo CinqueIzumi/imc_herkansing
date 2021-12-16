@@ -160,10 +160,20 @@ static esp_err_t input_key_service_cb(periph_service_handle_t handle, periph_ser
                 }
                 break;
             case INPUT_KEY_USER_ID_VOLDOWN:
-                ESP_LOGI(TAG, "Preferred temperature has been reduced");
+                if(screen_current_state == 0x00)
+                {
+                    pref_temp--;
+                    ESP_LOGI(TAG, "Preferred temperature has been reduced");
+                    switch_screen_states(0x00);
+                }
                 break;
             case INPUT_KEY_USER_ID_VOLUP:
-                ESP_LOGI(TAG, "Preferred temperature has been increased");
+                if(screen_current_state == 0x00)
+                {
+                    pref_temp++;
+                    ESP_LOGI(TAG, "Preferred temperature has been increased");
+                    switch_screen_states(0x00);
+                }
                 break;
             default:
                 break;
