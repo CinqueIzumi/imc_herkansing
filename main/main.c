@@ -12,6 +12,9 @@
 #include "smbus.h"
 #include "i2c-lcd1602.h"
 
+// Used for the temp sensor
+#include "dht11.h"
+
 // Used for the on-board buttons
 #include "esp_peripherals.h"
 #include "periph_adc_button.h"
@@ -190,27 +193,36 @@ static esp_err_t input_key_service_cb(periph_service_handle_t handle, periph_ser
 
 void app_main()
 {
-    init();
+    // init();
 
-    ESP_LOGI(TAG, "[ 1 ] Initialize peripherals");
-    esp_periph_config_t periph_cfg = DEFAULT_ESP_PERIPH_SET_CONFIG();
-    esp_periph_set_handle_t set = esp_periph_set_init(&periph_cfg);
+    // ESP_LOGI(TAG, "[ 1 ] Initialize peripherals");
+    // esp_periph_config_t periph_cfg = DEFAULT_ESP_PERIPH_SET_CONFIG();
+    // esp_periph_set_handle_t set = esp_periph_set_init(&periph_cfg);
 
-    ESP_LOGI(TAG, "[ 2 ] Initialize Button peripheral with board init");
-    audio_board_key_init(set);
+    // ESP_LOGI(TAG, "[ 2 ] Initialize Button peripheral with board init");
+    // audio_board_key_init(set);
 
-    ESP_LOGI(TAG, "[ 3 ] Create and start input key service");
-    input_key_service_info_t input_key_info[] = INPUT_KEY_DEFAULT_INFO();
-    input_key_service_cfg_t input_cfg = INPUT_KEY_SERVICE_DEFAULT_CONFIG();
-    input_cfg.handle = set;
-    input_cfg.based_cfg.task_stack = 4 * 1024;
-    periph_service_handle_t input_ser = input_key_service_create(&input_cfg);
+    // ESP_LOGI(TAG, "[ 3 ] Create and start input key service");
+    // input_key_service_info_t input_key_info[] = INPUT_KEY_DEFAULT_INFO();
+    // input_key_service_cfg_t input_cfg = INPUT_KEY_SERVICE_DEFAULT_CONFIG();
+    // input_cfg.handle = set;
+    // input_cfg.based_cfg.task_stack = 4 * 1024;
+    // periph_service_handle_t input_ser = input_key_service_create(&input_cfg);
 
-    input_key_service_add_key(input_ser, input_key_info, INPUT_KEY_NUM);
-    periph_service_set_callback(input_ser, input_key_service_cb, NULL);
+    // input_key_service_add_key(input_ser, input_key_info, INPUT_KEY_NUM);
+    // periph_service_set_callback(input_ser, input_key_service_cb, NULL);
 
-    ESP_LOGW(TAG, "[ 4 ] Waiting for a button to be pressed ...");
+    // ESP_LOGW(TAG, "[ 4 ] Waiting for a button to be pressed ...");
 
-    // Set the start screen to the temp screen
-    switch_screen_states(0x00);
+    // // Set the start screen to the temp screen
+    // switch_screen_states(0x00);
+
+    DHT11_init(GPIO_NUM_5);
+
+    while(1) {
+        printf("Temperature is %d \n", DHT11_read().temperature);
+        printf("Humidity is %d\n", DHT11_read().humidity);
+        printf("Status code is %d\n", DHT11_read().status);
+        vTaskDelay(1000 / portTICK_RATE_MS);
+    }
 }
