@@ -189,6 +189,7 @@ static esp_err_t input_key_service_cb(periph_service_handle_t handle, periph_ser
                 break;
             case INPUT_KEY_USER_ID_PLAY:
                 update_dht_data();
+                switch_screen_states(screen_current_state);
                 break;
             case INPUT_KEY_USER_ID_VOLUP:
                 if(screen_current_state == 0x00)
