@@ -105,7 +105,7 @@ void screen_temperature_task(void * pvParameter)
     i2c_lcd1602_write_string    (lcd_info, snum_pref_temp);
 
     i2c_lcd1602_move_cursor     (lcd_info, 0, 2);
-    i2c_lcd1602_write_string    (lcd_info, "Set> Humidity");
+    i2c_lcd1602_write_string    (lcd_info, "Set> Hum  Play> Upda");
 
     i2c_lcd1602_move_cursor     (lcd_info, 0, 3);
     i2c_lcd1602_write_string    (lcd_info, "Vol+/-> Pref +/-");
@@ -126,7 +126,7 @@ void screen_humidity_task(void * pvParameter)
     i2c_lcd1602_write_string    (lcd_info, snum_current_hum);
 
     i2c_lcd1602_move_cursor     (lcd_info, 0, 2);
-    i2c_lcd1602_write_string    (lcd_info, "Set> Temp");
+    i2c_lcd1602_write_string    (lcd_info, "Set> Temp Play> Upda");
 
     vTaskDelete(NULL);
 }
