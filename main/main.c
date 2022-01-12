@@ -7,6 +7,10 @@
 #include "esp_log.h"
 #include "sdkconfig.h"
 #include "rom/uart.h"
+#include "nvs_flash.h"
+
+// Error library
+#include "esp_err.h"
 
 // Used for the LCD
 #include "smbus.h"
@@ -20,12 +24,20 @@
 #include "periph_adc_button.h"
 #include "input_key_service.h"
 
+// Used for the gpio expander
+#include "mcp23017.h"
+
 #define TAG "app"
 
 // LCD1602
 #define LCD_NUM_ROWS               3
 #define LCD_NUM_COLUMNS            20
 #define LCD_NUM_VISIBLE_COLUMNS    20
+
+
+#define I2C_SDA	18	//	GPIO_NUM_23
+#define I2C_SCL   23	//	GPIO_NUM_22
+mcp23017_t mcp;
 
 // Undefine USE_STDIN if no stdin is available (e.g. no USB UART) - a fixed delay will occur instead of a wait for a keypress.
 #define USE_STDIN  1
@@ -209,29 +221,124 @@ static esp_err_t input_key_service_cb(periph_service_handle_t handle, periph_ser
     return ESP_OK;
 }
 
+void blink(void *pvParameter) {
+    // Turn everything off
+    mcp23017_write_register(&mcp, 0x09, GPIOB, 0xFF); // updates 0x09 (port 9) to turn on 
+    ESP_LOGI(TAG, "Turned all the leds off");
+    vTaskDelay(1000 / portTICK_RATE_MS);
+
+    /**
+     * 0xFF = 11111111 = leds turned off
+     * 0x00 = 00000000 = leds turned on
+     * 0x0D = 00001101 = turn left led on
+     **/
+   
+   // Turn the relay led on/off
+    while(1) {
+        mcp23017_write_register(&mcp, MCP23017_GPIO, GPIOB, 0x0B); // updates 0x09 (port 9) to turn on 
+        ESP_LOGI(TAG, "Updated with 1");
+        vTaskDelay(1000 / portTICK_RATE_MS);
+
+        mcp23017_write_register(&mcp, MCP23017_GPIO, GPIOB, 0xFF); // Turn all pins off
+        ESP_LOGI(TAG, "Updated with 0x55");
+        vTaskDelay(1000 / portTICK_RATE_MS);
+    }
+}
+
+// Initialize nonvolatile storage
+esp_err_t nvs_init(void) {
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES) {
+      ESP_ERROR_CHECK(nvs_flash_erase());
+      ret = nvs_flash_init();
+    }
+	return ret;
+}
+
+// A function which can be used to check for all the currently connected I2C devices
+void device_scan()
+{
+    i2c_config_t conf;
+    conf.mode = I2C_MODE_MASTER;
+    conf.sda_io_num = 18;
+    conf.scl_io_num = 23;
+    conf.sda_pullup_en = GPIO_PULLUP_ENABLE;
+    conf.scl_pullup_en = GPIO_PULLUP_ENABLE;
+    conf.master.clk_speed = 100000;
+
+    ESP_ERROR_CHECK(i2c_param_config(I2C_NUM_0, &conf));
+    printf("- i2c controller configured\r\n");
+
+    // install the driver
+    ESP_ERROR_CHECK(i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0));
+    printf("- i2c driver installed\r\n\r\n");
+
+    printf("scanning the bus...\r\n\r\n");
+    int devices_found = 0;
+    for(int address = 1; address < 127; address++) {
+    	// create and execute the command link
+    	i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    	i2c_master_start(cmd);
+    	i2c_master_write_byte(cmd, (address << 1) | I2C_MASTER_WRITE, true);
+    	i2c_master_stop(cmd);
+
+    	if(i2c_master_cmd_begin(I2C_NUM_0, cmd, 1000 / portTICK_RATE_MS) == ESP_OK) {
+    		printf("-> found device with address 0x%02x\r\n", address);
+    		devices_found++;
+    	}
+
+    	i2c_cmd_link_delete(cmd);
+
+    }
+
+    if(devices_found == 0) printf("\r\n-> no devices found\r\n");
+
+    printf("\r\n...scan completed!\r\n");
+}
+
 void app_main()
 {
-    init();
+    // init();
 
-    ESP_LOGI(TAG, "[ 5 ] Initialize peripherals");
-    esp_periph_config_t periph_cfg = DEFAULT_ESP_PERIPH_SET_CONFIG();
-    esp_periph_set_handle_t set = esp_periph_set_init(&periph_cfg);
+    // ESP_LOGI(TAG, "[ 5 ] Initialize peripherals");
+    // esp_periph_config_t periph_cfg = DEFAULT_ESP_PERIPH_SET_CONFIG();
+    // esp_periph_set_handle_t set = esp_periph_set_init(&periph_cfg);
 
-    ESP_LOGI(TAG, "[ 6 ] Initialize Button peripheral with board init");
-    audio_board_key_init(set);
+    // ESP_LOGI(TAG, "[ 6 ] Initialize Button peripheral with board init");
+    // audio_board_key_init(set);
 
-    ESP_LOGI(TAG, "[ 7 ] Create and start input key service");
-    input_key_service_info_t input_key_info[] = INPUT_KEY_DEFAULT_INFO();
-    input_key_service_cfg_t input_cfg = INPUT_KEY_SERVICE_DEFAULT_CONFIG();
-    input_cfg.handle = set;
-    input_cfg.based_cfg.task_stack = 4 * 1024;
-    periph_service_handle_t input_ser = input_key_service_create(&input_cfg);
+    // ESP_LOGI(TAG, "[ 7 ] Create and start input key service");
+    // input_key_service_info_t input_key_info[] = INPUT_KEY_DEFAULT_INFO();
+    // input_key_service_cfg_t input_cfg = INPUT_KEY_SERVICE_DEFAULT_CONFIG();
+    // input_cfg.handle = set;
+    // input_cfg.based_cfg.task_stack = 4 * 1024;
+    // periph_service_handle_t input_ser = input_key_service_create(&input_cfg);
 
-    input_key_service_add_key(input_ser, input_key_info, INPUT_KEY_NUM);
-    periph_service_set_callback(input_ser, input_key_service_cb, NULL);
+    // input_key_service_add_key(input_ser, input_key_info, INPUT_KEY_NUM);
+    // periph_service_set_callback(input_ser, input_key_service_cb, NULL);
 
-    ESP_LOGI(TAG, "[ 8 ] Waiting for a button to be pressed ...");
+    // ESP_LOGI(TAG, "[ 8 ] Waiting for a button to be pressed ...");
 
-    // Set the start screen to the temp screen
-    switch_screen_states(0x00);
+    // // Set the start screen to the temp screen
+    // switch_screen_states(0x00);
+    
+    // device_scan();
+    
+    // ESP_ERROR_CHECK(i2cdev_init());
+    // xTaskCreate(test, "test", configMINIMAL_STACK_SIZE * 6, NULL, 5, NULL);
+
+    // ESP_ERROR_CHECK(nvs_init());
+
+    mcp.i2c_addr = MCP23017_DEFAULT_ADDR;
+    mcp.port = I2C_NUM_1;
+    mcp.sda_pin = I2C_SDA;
+    mcp.scl_pin = I2C_SCL;
+
+    mcp.sda_pullup_en = GPIO_PULLUP_ENABLE;
+    mcp.scl_pullup_en = GPIO_PULLUP_ENABLE;
+
+    esp_err_t ret = mcp23017_init(&mcp);
+    ESP_ERROR_CHECK(ret);
+
+    xTaskCreate(&blink,"blink",2048,NULL,5,NULL);
 }
