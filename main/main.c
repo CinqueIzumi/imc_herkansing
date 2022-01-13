@@ -37,7 +37,9 @@
 
 #define I2C_SDA	18	//	GPIO_NUM_23
 #define I2C_SCL   23	//	GPIO_NUM_22
+
 mcp23017_t mcp;
+SemaphoreHandle_t xMutex;
 
 // Undefine USE_STDIN if no stdin is available (e.g. no USB UART) - a fixed delay will occur instead of a wait for a keypress.
 #define USE_STDIN  1
@@ -62,40 +64,6 @@ enum screen_state {
     SCREEN_HUM = 0x01,
 };
 static int16_t screen_current_state = 0x00; 
-
-static void init(void)
-{
-    ESP_LOGI(TAG, "[ 1 ] Set up I2C");
-    int i2c_master_port = I2C_MASTER_NUM;
-    i2c_config_t conf;
-    conf.mode = I2C_MODE_MASTER;
-    conf.sda_io_num = I2C_MASTER_SDA_IO;
-    conf.sda_pullup_en = GPIO_PULLUP_DISABLE;  // GY-2561 provides 10kΩ pullups
-    conf.scl_io_num = I2C_MASTER_SCL_IO;
-    conf.scl_pullup_en = GPIO_PULLUP_DISABLE;  // GY-2561 provides 10kΩ pullups
-    conf.master.clk_speed = I2C_MASTER_FREQ_HZ;
-    i2c_param_config(i2c_master_port, &conf);
-    i2c_driver_install(i2c_master_port, conf.mode,
-                       I2C_MASTER_RX_BUF_LEN,
-                       I2C_MASTER_TX_BUF_LEN, 0);
-
-    i2c_port_t i2c_num = I2C_MASTER_NUM;
-    uint8_t address = CONFIG_LCD1602_I2C_ADDRESS;
-
-    ESP_LOGI(TAG, "[ 2 ] Set up SMBus");
-    smbus_info_t * smbus_info = smbus_malloc();
-    ESP_ERROR_CHECK(smbus_init(smbus_info, i2c_num, address));
-    ESP_ERROR_CHECK(smbus_set_timeout(smbus_info, 1000 / portTICK_RATE_MS));
-
-    ESP_LOGI(TAG, "[ 3 ] Set up LCD1602 device with backlight off");
-    lcd_info = i2c_lcd1602_malloc();
-    ESP_ERROR_CHECK(i2c_lcd1602_init(lcd_info, smbus_info, true,
-                                     LCD_NUM_ROWS, LCD_NUM_COLUMNS, LCD_NUM_VISIBLE_COLUMNS));
-    ESP_ERROR_CHECK(i2c_lcd1602_reset(lcd_info));
-
-    ESP_LOGI(TAG, "[ 4 ] Setting up the DHT sensor");
-    DHT11_init(GPIO_NUM_5);
-}
 
 void screen_temperature_task(void * pvParameter) 
 {
@@ -143,20 +111,39 @@ void screen_humidity_task(void * pvParameter)
     vTaskDelete(NULL);
 }
 
-void update_dht_data(void)
-{
-    current_temp = DHT11_read().temperature;
-    current_hum = DHT11_read().humidity;
+// void update_dht_data(void)
+// {
+//     current_temp = DHT11_read().temperature;
+//     current_hum = DHT11_read().humidity;
 
-    printf("Temperature is %d \n", DHT11_read().temperature);
-    printf("Humidity is %d\n", DHT11_read().humidity);
-    ESP_LOGI(TAG, "Data has been updated");
+//     printf("Temperature is %d \n", DHT11_read().temperature);
+//     printf("Humidity is %d\n", DHT11_read().humidity);
+//     ESP_LOGI(TAG, "Data has been updated");
+// }
+
+void update_dht_data(void * pvParameter)
+{
+    while(1)
+    {
+        vTaskDelay(5100 / portTICK_RATE_MS);
+
+	    
+	    xSemaphoreTake( xMutex, portMAX_DELAY );
+	    current_temp = DHT11_read().temperature;
+        current_hum = DHT11_read().humidity;
+
+        printf("Temperature is %d \n", DHT11_read().temperature);
+        printf("Humidity is %d\n", DHT11_read().humidity);
+        ESP_LOGI(TAG, "Data has been updated");
+	    xSemaphoreGive( xMutex );
+    }
+
 }
 
 static TaskHandle_t active_task_handle;
 void switch_screen_states(int16_t newState)
 {
-    update_dht_data();
+    // update_dht_data();
     switch(newState) 
     {
         case SCREEN_TEMP:
@@ -200,7 +187,7 @@ static esp_err_t input_key_service_cb(periph_service_handle_t handle, periph_ser
                 }
                 break;
             case INPUT_KEY_USER_ID_PLAY:
-                update_dht_data();
+                // update_dht_data();
                 switch_screen_states(screen_current_state);
                 break;
             case INPUT_KEY_USER_ID_VOLUP:
@@ -296,9 +283,72 @@ void device_scan()
     printf("\r\n...scan completed!\r\n");
 }
 
+void mcp23017_task(void* pvParameters)
+{
+    bool on = false;
+    while (1) {
+        
+	   xSemaphoreTake( xMutex, portMAX_DELAY );
+	   mcp23017_write_register(&mcp, MCP23017_GPIO, GPIOB, on ? 0xFF : 0x0B);
+       ESP_LOGI(TAG, "LED updated");
+	   xSemaphoreGive( xMutex );
+	   on = !on;
+	   
+       vTaskDelay(500 / portTICK_RATE_MS);
+
+    }
+    vTaskDelete(NULL);
+}
+
+void mcp23017_task_read(void* pvParameters)
+{
+    while (1) {
+
+	   vTaskDelay(5100 / portTICK_RATE_MS);
+
+	   // Check states on input
+	   uint8_t states = 0x00;
+	   xSemaphoreTake( xMutex, portMAX_DELAY );
+	   mcp23017_read_register(&mcp, MCP23017_GPIO, GPIOB, &states);
+	   xSemaphoreGive( xMutex );
+	   
+	   ESP_LOGI(TAG, "GPIO register B states: %d", states);
+    }
+    vTaskDelete(NULL);
+}
+
 void app_main()
 {
-    // init();
+    ESP_LOGI(TAG, "[ 1 ] Set up I2C");
+    int i2c_master_port = I2C_MASTER_NUM;
+    i2c_config_t conf;
+    conf.mode = I2C_MODE_MASTER;
+    conf.sda_io_num = I2C_MASTER_SDA_IO;
+    conf.sda_pullup_en = GPIO_PULLUP_DISABLE;  // GY-2561 provides 10kΩ pullups
+    conf.scl_io_num = I2C_MASTER_SCL_IO;
+    conf.scl_pullup_en = GPIO_PULLUP_DISABLE;  // GY-2561 provides 10kΩ pullups
+    conf.master.clk_speed = I2C_MASTER_FREQ_HZ;
+    i2c_param_config(i2c_master_port, &conf);
+    i2c_driver_install(i2c_master_port, conf.mode,
+                       I2C_MASTER_RX_BUF_LEN,
+                       I2C_MASTER_TX_BUF_LEN, 0);
+
+    i2c_port_t i2c_num = I2C_MASTER_NUM;
+    uint8_t address = CONFIG_LCD1602_I2C_ADDRESS;
+
+    ESP_LOGI(TAG, "[ 2 ] Set up SMBus");
+    smbus_info_t * smbus_info = smbus_malloc();
+    ESP_ERROR_CHECK(smbus_init(smbus_info, i2c_num, address));
+    ESP_ERROR_CHECK(smbus_set_timeout(smbus_info, 1000 / portTICK_RATE_MS));
+
+    // ESP_LOGI(TAG, "[ 3 ] Set up LCD1602 device with backlight off");
+    // lcd_info = i2c_lcd1602_malloc();
+    // ESP_ERROR_CHECK(i2c_lcd1602_init(lcd_info, smbus_info, true,
+    //                                  LCD_NUM_ROWS, LCD_NUM_COLUMNS, LCD_NUM_VISIBLE_COLUMNS));
+    // ESP_ERROR_CHECK(i2c_lcd1602_reset(lcd_info));
+
+    ESP_LOGI(TAG, "[ 4 ] Setting up the DHT sensor");
+    DHT11_init(GPIO_NUM_5);
 
     // ESP_LOGI(TAG, "[ 5 ] Initialize peripherals");
     // esp_periph_config_t periph_cfg = DEFAULT_ESP_PERIPH_SET_CONFIG();
@@ -327,7 +377,8 @@ void app_main()
     // ESP_ERROR_CHECK(i2cdev_init());
     // xTaskCreate(test, "test", configMINIMAL_STACK_SIZE * 6, NULL, 5, NULL);
 
-    // ESP_ERROR_CHECK(nvs_init());
+
+    ESP_ERROR_CHECK(nvs_init());
 
     mcp.i2c_addr = MCP23017_DEFAULT_ADDR;
     mcp.port = I2C_NUM_1;
@@ -340,5 +391,23 @@ void app_main()
     esp_err_t ret = mcp23017_init(&mcp);
     ESP_ERROR_CHECK(ret);
 
-    xTaskCreate(&blink,"blink",2048,NULL,5,NULL);
+    xMutex = xSemaphoreCreateMutex();
+
+    // Set GPIO Direction
+	// mcp23017_write_register(&mcp, MCP23017_IODIR, GPIOA, 0x00); // full port on OUTPUT
+	// mcp23017_write_register(&mcp, MCP23017_IODIR, GPIOB, 0xFF); // full port on INPUT
+	// mcp23017_write_register(&mcp, MCP23017_GPPU, GPIOB, 0xFF); // full port on INPUT
+	
+	
+	// Create blinking led task
+	xTaskCreate(mcp23017_task, "mcp23017_task", 1024 * 2, NULL, 10,
+            NULL);
+	xTaskCreate(update_dht_data, "mcp23017_task_read", 1024 * 2, NULL, 10,
+            NULL);
+
+    while (1) {
+        vTaskDelay(500 / portTICK_RATE_MS);
+    }
+
+    // xTaskCreate(&blink,"blink",2048,NULL,5,NULL);
 }
