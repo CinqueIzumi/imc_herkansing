@@ -185,7 +185,7 @@ void rotary_encoder_on_moved(int16_t idx)
         screen_current_state = 0x01;
         switch_screen_states(0x01);
     } 
-    else
+    else if (idx == -1)
     {
         screen_current_state = 0x00;
         switch_screen_states(0x00);
