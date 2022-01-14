@@ -67,6 +67,8 @@ typedef struct
 
 esp_err_t qwiic_twist_init(qwiic_twist_t* config);
 
+qwiic_twist_t* qwiic_twist_malloc(void);
+
 bool qwiic_twist_conntected(qwiic_twist_t* config);
 
 esp_err_t qwiic_twist_start_task(qwiic_twist_t* config);

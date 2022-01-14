@@ -32,6 +32,21 @@ esp_err_t qwiic_twist_init(qwiic_twist_t* config) {
 	return ESP_OK;
 }
 
+qwiic_twist_t* qwiic_twist_malloc(void) 
+{
+    qwiic_twist_t* qwiic_twist_info = malloc(sizeof(*qwiic_twist_info));
+    if (qwiic_twist_info != NULL)
+    {
+        memset(qwiic_twist_info, 0, sizeof(*qwiic_twist_info));
+        ESP_LOGD(TAG, "malloc qwiic_twist_t %p", qwiic_twist_info);
+    }
+    else
+    {
+        ESP_LOGE(TAG, "malloc qwiic_twist_t failed");
+    }
+    return qwiic_twist_info;
+}
+
 
 bool qwiic_twist_conntected(qwiic_twist_t* config) {
 	return true;
