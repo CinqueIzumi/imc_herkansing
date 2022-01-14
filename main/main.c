@@ -12,6 +12,9 @@
 #include "smbus.h"
 #include "i2c-lcd1602.h"
 
+// Used for the rotary encoder
+#include "qwiic_twist.h"
+
 // Used for the temp sensor
 #include "dht11.h"
 
@@ -39,6 +42,7 @@
 #define I2C_MASTER_SCL_IO        CONFIG_I2C_MASTER_SCL
 
 static i2c_lcd1602_info_t* lcd_info;
+static qwiic_twist_t* qwiic_handle;
 
 int current_temp = 24;
 int pref_temp = 20;
@@ -131,20 +135,9 @@ void screen_humidity_task(void * pvParameter)
     vTaskDelete(NULL);
 }
 
-void update_dht_data(void)
-{
-    current_temp = DHT11_read().temperature;
-    current_hum = DHT11_read().humidity;
-
-    printf("Temperature is %d \n", DHT11_read().temperature);
-    printf("Humidity is %d\n", DHT11_read().humidity);
-    ESP_LOGI(TAG, "Data has been updated");
-}
-
 static TaskHandle_t active_task_handle;
 void switch_screen_states(int16_t newState)
 {
-    update_dht_data();
     switch(newState) 
     {
         case SCREEN_TEMP:
@@ -158,6 +151,47 @@ void switch_screen_states(int16_t newState)
     }
 
     screen_current_state = newState;
+}
+
+void update_dht_data(void)
+{
+    current_temp = DHT11_read().temperature;
+    current_hum = DHT11_read().humidity;
+
+    printf("Temperature is %d \n", DHT11_read().temperature);
+    printf("Humidity is %d\n", DHT11_read().humidity);
+    ESP_LOGI(TAG, "Data has been updated");
+
+    switch_screen_states(screen_current_state);
+
+    vTaskDelete(NULL);
+}
+
+void rotary_encoder_on_clicked()
+{
+    xTaskCreate(update_dht_data, "update_dht_data", 2048, NULL, 10, NULL);
+    vTaskDelay(1000 / portTICK_RATE_MS);
+}
+
+void rotary_encoder_on_moved(int16_t idx)
+{ 
+    /* 
+        Left -> -1
+        Right -> 1
+    */
+
+    if(idx == 1)
+    {
+        screen_current_state = 0x01;
+        switch_screen_states(0x01);
+    } 
+    else
+    {
+        screen_current_state = 0x00;
+        switch_screen_states(0x00);
+    }
+
+    vTaskDelay(1000 / portTICK_RATE_MS);
 }
 
 static esp_err_t input_key_service_cb(periph_service_handle_t handle, periph_service_event_t *evt, void *ctx)
@@ -188,7 +222,7 @@ static esp_err_t input_key_service_cb(periph_service_handle_t handle, periph_ser
                 }
                 break;
             case INPUT_KEY_USER_ID_PLAY:
-                update_dht_data();
+                xTaskCreate(update_dht_data, "update_dht_data", 2048, NULL, 10, NULL);
                 break;
             case INPUT_KEY_USER_ID_VOLUP:
                 if(screen_current_state == 0x00)
@@ -210,16 +244,56 @@ static esp_err_t input_key_service_cb(periph_service_handle_t handle, periph_ser
 
 void app_main()
 {
-    init();
+    ESP_LOGI(TAG, "[ 1 ] Set up I2C");
+    int i2c_master_port = I2C_MASTER_NUM;
+    i2c_config_t conf;
+    conf.mode = I2C_MODE_MASTER;
+    conf.sda_io_num = I2C_MASTER_SDA_IO;
+    conf.sda_pullup_en = GPIO_PULLUP_DISABLE;  // GY-2561 provides 10kΩ pullups
+    conf.scl_io_num = I2C_MASTER_SCL_IO;
+    conf.scl_pullup_en = GPIO_PULLUP_DISABLE;  // GY-2561 provides 10kΩ pullups
+    conf.master.clk_speed = I2C_MASTER_FREQ_HZ;
+    i2c_param_config(i2c_master_port, &conf);
+    i2c_driver_install(i2c_master_port, conf.mode,
+                       I2C_MASTER_RX_BUF_LEN,
+                       I2C_MASTER_TX_BUF_LEN, 0);
 
-    ESP_LOGI(TAG, "[ 5 ] Initialize peripherals");
+    i2c_port_t i2c_num = I2C_MASTER_NUM;
+    uint8_t address = CONFIG_LCD1602_I2C_ADDRESS;
+
+    ESP_LOGI(TAG, "[ 2 ] Set up SMBus");
+    smbus_info_t * smbus_info = smbus_malloc();
+    ESP_ERROR_CHECK(smbus_init(smbus_info, i2c_num, address));
+    ESP_ERROR_CHECK(smbus_set_timeout(smbus_info, 1000 / portTICK_RATE_MS));
+
+    ESP_LOGI(TAG, "[ 3 ] Set up LCD1602 device with backlight off");
+    lcd_info = i2c_lcd1602_malloc();
+    ESP_ERROR_CHECK(i2c_lcd1602_init(lcd_info, smbus_info, true,
+                                     LCD_NUM_ROWS, LCD_NUM_COLUMNS, LCD_NUM_VISIBLE_COLUMNS));
+    ESP_ERROR_CHECK(i2c_lcd1602_reset(lcd_info));
+
+    ESP_LOGI(TAG, "[ 4 ] Setting up the DHT sensor");
+    DHT11_init(GPIO_NUM_5);
+
+    ESP_LOGI(TAG, "[ 5 ] Setting up the rotary encoder");
+    qwiic_twist_t* qwiic_config = qwiic_twist_malloc();
+    qwiic_config->port = I2C_MASTER_NUM;
+    qwiic_config->i2c_addr = 0x3F;
+    qwiic_config->onButtonClicked = &rotary_encoder_on_clicked;
+    qwiic_config->onMoved = &rotary_encoder_on_moved;
+    ESP_ERROR_CHECK(qwiic_twist_init(qwiic_config));
+    ESP_ERROR_CHECK(qwiic_twist_set_color(qwiic_config, 0,0,0));
+    qwiic_handle = qwiic_config;
+
+
+    ESP_LOGI(TAG, "[ 6 ] Initialize peripherals");
     esp_periph_config_t periph_cfg = DEFAULT_ESP_PERIPH_SET_CONFIG();
     esp_periph_set_handle_t set = esp_periph_set_init(&periph_cfg);
 
-    ESP_LOGI(TAG, "[ 6 ] Initialize Button peripheral with board init");
+    ESP_LOGI(TAG, "[ 7 ] Initialize Button peripheral with board init");
     audio_board_key_init(set);
 
-    ESP_LOGI(TAG, "[ 7 ] Create and start input key service");
+    ESP_LOGI(TAG, "[ 8 ] Create and start input key service");
     input_key_service_info_t input_key_info[] = INPUT_KEY_DEFAULT_INFO();
     input_key_service_cfg_t input_cfg = INPUT_KEY_SERVICE_DEFAULT_CONFIG();
     input_cfg.handle = set;
@@ -229,8 +303,15 @@ void app_main()
     input_key_service_add_key(input_ser, input_key_info, INPUT_KEY_NUM);
     periph_service_set_callback(input_ser, input_key_service_cb, NULL);
 
-    ESP_LOGI(TAG, "[ 8 ] Waiting for a button to be pressed ...");
+    ESP_LOGI(TAG, "[ 9 ] Waiting for a button to be pressed ...");
 
     // Set the start screen to the temp screen
     switch_screen_states(0x00);
+
+    // Initialize the rotary encoder
+    if (qwiic_twist_start_task(qwiic_config) != ESP_OK)
+    {
+        ESP_LOGE(TAG, "TASK_START_QWIIC_FAILED");
+        esp_restart();
+    }
 }
