@@ -42,6 +42,17 @@
 static i2c_lcd1602_info_t* lcd_info;
 static qwiic_twist_t* qwiic_handle;
 
+/* Queue used to send and receive the data */
+QueueHandle_t xStructQueue = NULL;
+
+/* Struct which shall be used to hold and pass around the data for the LCD screen*/
+struct LcdData
+{
+    int current_temp;
+    int current_humidity;
+    int preferred_temp;
+} xLcdData;
+
 // Variables used to keep track of the current information
 int current_temp = 24;
 int pref_temp = 20;
@@ -64,6 +75,32 @@ void update_dht_data();
 void switch_screen_states(int16_t newState);
 void screen_humidity_task();
 void screen_temperature_task();
+
+// Testing
+void initialize_queues(void);
+void screen_temperature_task_simplified(void *pvParameters);
+void update_sensor_struct(void);
+void on_rotary_clicked_simplified();
+
+
+void initialize_queues(void)
+{
+    xLcdData.current_humidity = 0;
+    xLcdData.current_temp = 0;
+    xLcdData.preferred_temp = 18;
+
+    xStructQueue = xQueueCreate(
+        /* The maximum number of items the queue can hold*/
+        5,
+        /* The size of each struct, which the queue should be able to hold */
+        sizeof( xLcdData )
+    );
+
+    if(xStructQueue == NULL)
+    {
+        ESP_LOGE(TAG, "Queue has not been initialized successfully");
+    }
+}
 
 void app_main()
 {
@@ -101,7 +138,8 @@ void app_main()
     qwiic_twist_t* qwiic_config = qwiic_twist_malloc();
     qwiic_config->port = I2C_MASTER_NUM;
     qwiic_config->i2c_addr = 0x3F;
-    qwiic_config->onButtonClicked = &rotary_encoder_on_clicked;
+    // qwiic_config->onButtonClicked = &rotary_encoder_on_clicked;
+    qwiic_config->onButtonClicked = &on_rotary_clicked_simplified;
     qwiic_config->onMoved = &rotary_encoder_on_moved;
     ESP_ERROR_CHECK(qwiic_twist_init(qwiic_config));
     ESP_ERROR_CHECK(qwiic_twist_set_color(qwiic_config, 0,0,0));
@@ -125,10 +163,14 @@ void app_main()
     input_key_service_add_key(input_ser, input_key_info, INPUT_KEY_NUM);
     periph_service_set_callback(input_ser, input_key_service_cb, NULL);
 
+    ESP_LOGI(TAG, "[ 9 ] Initializing the queues");
+    initialize_queues();
+
     ESP_LOGI(TAG, "[ 9 ] Waiting for a button to be pressed...");
 
     // Set the start screen to the temp screen
-    switch_screen_states(0x00);
+    // switch_screen_states(0x00);
+    xTaskCreate(screen_temperature_task_simplified, "screen_temperature_task_simplified", 1024*2, (void*)0, 10, &active_task_handle);
 
     // Initialize the rotary encoder
     if (qwiic_twist_start_task(qwiic_config) != ESP_OK)
@@ -167,6 +209,61 @@ void screen_temperature_task()
 
     vTaskDelete(NULL);
 }
+
+void screen_temperature_task_simplified(void *pvParameters)
+{
+    int counter = 0;
+    for(; ;)
+    {
+        struct LcdData xReceivedStructure;
+
+        BaseType_t result;
+        result = xQueueReceive(xStructQueue, &xReceivedStructure, ( TickType_t ) 10);
+
+        if(result == pdPASS)
+        {
+            counter = counter + 1;
+
+            char snum_current_counter[12];
+            sprintf(snum_current_counter, "%d", counter);
+
+            i2c_lcd1602_clear           (lcd_info);
+            i2c_lcd1602_write_string    (lcd_info, snum_current_counter);
+        }
+    }
+
+    vTaskDelete(NULL);
+}
+
+void update_sensor_struct(void)
+{
+    xLcdData.current_temp = DHT11_read().temperature;
+    xLcdData.current_humidity = DHT11_read().humidity;
+
+    // Log the results in the console
+    printf("Temperature is %d \n", xLcdData.current_temp);
+    printf("Humidity is %d\n", xLcdData.current_humidity);
+    ESP_LOGI(TAG, "Data has been updated");
+}
+
+void on_rotary_clicked_simplified()
+{
+    ESP_LOGI(TAG, "Rotary encoder has been clicked!");
+    // Update the struct which holds the data
+    update_sensor_struct();
+
+    /* Send the entire struct to the queue */
+    xQueueSend(
+        /* The handle of the queue */
+        xStructQueue,
+        /* The adress of the struct which should be sent */
+        (void *) &xLcdData,
+        /* Block time of 0 says don't block if the queue is already full.
+        Check the value returned by xQueueSend() to know if the message
+        was sent to the queue successfully. */
+        ( TickType_t ) 0
+    );
+} 
 
 void screen_humidity_task() 
 {
