@@ -26,6 +26,8 @@
 /* Define the tag, which will be used for logging */
 #define TAG "imc_herkansing"
 
+#define RELAY_GPIO GPIO_NUM_26
+
 /* LCD1602 */
 #define LCD_NUM_ROWS               3
 #define LCD_NUM_COLUMNS            20
@@ -53,6 +55,7 @@ struct LcdData
     int current_humidity;
     int preferred_temp;
     int16_t current_screen;
+    int thermostat;
 } xLcdData;
 
 /* Ensure that the struct can be passed by value */
@@ -76,6 +79,7 @@ void update_dht_data();
 void rotary_encoder_on_clicked();
 void rotary_encoder_on_moved(int16_t idx);
 static esp_err_t input_key_service_cb(periph_service_handle_t handle, periph_service_event_t *evt, void *ctx);
+void control_thermostat(int control);
 
 /* The main function */
 void app_main()
@@ -159,10 +163,11 @@ void app_main()
 void initialize_queues(void)
 {
     /* Set the default data of the LCD data struct */
-    xLcdData.current_humidity = 0;
-    xLcdData.current_temp = 0;
+    xLcdData.current_humidity = -1;
+    xLcdData.current_temp = -1;
     xLcdData.preferred_temp = 18;
     xLcdData.current_screen = 0x00;
+    xLcdData.thermostat = 0;
 
     /* Initialize the queue */
     xStructQueue = xQueueCreate(
@@ -204,6 +209,9 @@ void lcd_screen_task(void *pvParameters)
                     draw_humidity_screen(xReceivedStructure);
                     break;
             }
+
+            /* Update the thermostat, based on the given data */
+            control_thermostat(xReceivedStructure.thermostat);
         }
     }
 
@@ -279,6 +287,15 @@ void rotary_encoder_on_clicked()
 
     /* Update the struct which holds the data */
     update_dht_data();
+
+    if(xLcdData.preferred_temp > xLcdData.current_temp)
+    {
+        xLcdData.thermostat = 1;
+    }
+    else
+    {
+        xLcdData.thermostat = 0;                
+    }
 
     /* Send the entire struct to the queue */
     xQueueSend(
@@ -374,6 +391,15 @@ static esp_err_t input_key_service_cb(periph_service_handle_t handle, periph_ser
             default:
                 break;
         }
+
+        if(xLcdData.preferred_temp > xLcdData.current_temp)
+        {
+            xLcdData.thermostat = 1;
+        }
+        else
+        {
+            xLcdData.thermostat = 0;      
+        }
         /* Add the modified lcd data to the queue */
         xQueueSend(xStructQueue, (void *) &xLcdData, ( TickType_t ) 0);
 
@@ -382,4 +408,22 @@ static esp_err_t input_key_service_cb(periph_service_handle_t handle, periph_ser
     }
 
     return ESP_OK;
+}
+
+/* A function which can be used to control the thermostat */
+void control_thermostat(int control)
+{
+    /* 
+        Flips the 1 and 0
+        The relay uses inverted values, so 0 would turn on the led, and 1 would turn off the led
+    */
+    int status = 1 - control;
+
+    gpio_pad_select_gpio(RELAY_GPIO);
+    
+    /* Set the GPIO as a push/pull output */
+    gpio_set_direction(RELAY_GPIO, GPIO_MODE_OUTPUT);
+
+    gpio_set_level(RELAY_GPIO, status);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
 }
