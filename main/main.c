@@ -26,6 +26,8 @@
 /* Define the tag, which will be used for logging */
 #define TAG "imc_herkansing"
 
+#define RELAY_GPIO GPIO_NUM_26
+
 /* LCD1602 */
 #define LCD_NUM_ROWS               3
 #define LCD_NUM_COLUMNS            20
@@ -76,6 +78,27 @@ void update_dht_data();
 void rotary_encoder_on_clicked();
 void rotary_encoder_on_moved(int16_t idx);
 static esp_err_t input_key_service_cb(periph_service_handle_t handle, periph_service_event_t *evt, void *ctx);
+
+void relay_task(void *pvParameter)
+{
+    /* Configure the IOMUX register for pad RELAY_GPIO (some pads are
+       muxed to GPIO on reset already, but some default to other
+       functions and need to be switched to GPIO. Consult the
+       Technical Reference for a list of pads and their default
+       functions.)
+    */
+    gpio_pad_select_gpio(RELAY_GPIO);
+    /* Set the GPIO as a push/pull output */
+    gpio_set_direction(RELAY_GPIO, GPIO_MODE_OUTPUT);
+    while(1) {
+        /* Relay off (output low) */
+        gpio_set_level(RELAY_GPIO, 0);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        /* Relay on (output high) */
+        gpio_set_level(RELAY_GPIO, 1);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
+}
 
 /* The main function */
 void app_main()
@@ -143,6 +166,7 @@ void app_main()
 
     /* Initialize the LCD screen task */
     xTaskCreate(lcd_screen_task, "lcd_screen_task", 1024*2, (void*)0, 10, &active_task_handle);
+    xTaskCreate(relay_task, "relay_task", 1024*2, NULL, 5, NULL);
 
     /* Add the initialized struct to the queue, to show the current temperature on boot */
     xQueueSend(xStructQueue, (void *) &xLcdData, ( TickType_t ) 0);
